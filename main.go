@@ -5,33 +5,30 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func main() {
-	conn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
-
+func connect() *pgxpool.Pool {
+	pool, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL")) // Inicia conexion
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to connect to database: %v\n", err)
+		fmt.Println("Unable to connect to database", err)
 		os.Exit(1)
 	}
-	defer conn.Close(context.Background())
 
-	var brand string
-	var model string
+	return pool
+}
 
-	rows, err := conn.Query(context.Background(), "SELECT brand, model FROM vehicles")
+func main() {
+	db := connect()
+	defer db.Close()
 
-	for rows.Next() {
-		err := rows.Scan(&brand, &model)
+	var name string
+	err := db.QueryRow(context.Background(), "SELECT name FROM users WHERE id=$1", 1).Scan(&name)
 
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-
-		fmt.Println(brand, model)
+	if err != nil {
+		fmt.Println("Error on request: ", err)
+		os.Exit(1)
 	}
 
-	fmt.Println(brand, model)
+	fmt.Println(name)
 }
