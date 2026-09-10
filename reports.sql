@@ -24,38 +24,43 @@ LIMIT 10;
 
 ---- Query para reporte de usuario ----
 
--- Publicaciones de un usario ($1 usuario)
-SELECT users.name, COUNT(*) AS posts
-FROM posts
-JOIN users ON posts.seller_id = users.id
-WHERE users.id = $1
-GROUP BY users.name;
+SELECT users.name,
+    (SELECT COUNT(*) FROM posts
+    WHERE seller_id = $1) AS posts, -- Publicaciones de un usario ($1 usuario)
+    
+    (SELECT COUNT(*) FROM posts
+    WHERE seller_id = $1 AND state = 0) AS active_posts, -- Publicaciones activas, pausadas, finalizadas ($1 usuario, $2 estado)
 
--- Publicaciones activas ($1 usuario, $2 estado)
-SELECT COUNT(*) AS active_posts
-FROM posts
-JOIN users ON posts.seller_id = users.id
-WHERE users.id = 4180 AND posts.state = 0
-GROUP BY users.name;
+    (SELECT COUNT(*) FROM transactions t
+    JOIN posts p ON t.post_id = p.id
+    WHERE p.seller_id = $1) AS sales, -- Cantidad de ventas
 
-SELECT COUNT(*) AS sells
-FROM posts
-JOIN users ON posts.seller_id = users.id
-WHERE users.id = 4180 AND posts.state = 2
+    COALESCE((SELECT SUM(t.sale_price) FROM transactions t
+    JOIN posts p ON t.post_id = p.id
+    WHERE p.seller_id = $1), 0) AS billing, -- Dinero generado
 
+    (SELECT COUNT(*) FROM transactions
+    WHERE buyer_id = $1) AS purchases, -- Cantidad de compras
 
+    COALESCE((SELECT SUM(sale_price) FROM transactions
+    WHERE buyer_id = $1), 0) AS spent, -- Valor de las compras
+
+    (SELECT COUNT(*) FROM posts
+    WHERE seller_id = $1 AND state = 0 AND create_time < NOW() - INTERVAL '6 months') AS old_posts -- Posts con antiguedad
+FROM users
+WHERE users.id = $1;
+
+SELECT * FROM posts WHERE seller_id = 4180 -- Usuario para pruebas
 
 /*
-Usuario: Juan Pérez
+EJEMPLO:
+Usuario: Juan Pérez 4180
 ────────────────────────
-Publicaciones:          27
-Publicaciones activas:  12
-Vehículos vendidos:      9
-Precio promedio:     $18.500
-
-Ventas:                  9
-Facturación:       $145.000
-Venta promedio:     $16.100
-
-Compras:                 2
-Dinero gastado:      $31.000*\
+Publicaciones:          27 Hecho
+Publicaciones activas:  12 Hecho
+Ventas:                  9 Hecho
+Facturación:       $145.000 Hecho
+Compras:                 2 Hecho
+Monto total gastado:      $31.000 Hecho 
+Publicaciones antiguas: 2 Hecho
+*\
