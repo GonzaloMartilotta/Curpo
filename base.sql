@@ -14,13 +14,6 @@ CREATE TABLE vehicles(
     specs JSONB
 );
 
-CREATE TABLE images(
-    id BIGSERIAL PRIMARY KEY,
-    url VARCHAR NOT NULL UNIQUE,
-    post_id BIGINT NOT NULL REFERENCES posts(id),
-    is_cover BOOLEAN NOT NULL
-);
-
 CREATE TABLE posts(
     id BIGSERIAL PRIMARY KEY,
     title VARCHAR NOT NULL,
@@ -30,7 +23,14 @@ CREATE TABLE posts(
     vehicle_id BIGINT NOT NULL REFERENCES vehicles(id),
     seller_id BIGINT NOT NULL REFERENCES users(id),
     create_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    state SMALLINT NOT NULL CHECK (state BETWEEN 0 AND 3)
+    state SMALLINT NOT NULL CHECK (state BETWEEN 0 AND 3) -- 0=activo, 1=pausado, 2=eliminado, 3=vendido
+);
+
+CREATE TABLE images(
+    id BIGSERIAL PRIMARY KEY,
+    url VARCHAR NOT NULL UNIQUE,
+    post_id BIGINT NOT NULL REFERENCES posts(id),
+    is_cover BOOLEAN NOT NULL
 );
 
 CREATE TABLE transactions(
