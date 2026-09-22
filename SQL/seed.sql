@@ -1,13 +1,20 @@
--- =========================================================
 -- SEED DATA - Curpo
 -- Genera datos de prueba con distribución no homogénea
 -- para que las queries de reporte y los índices tengan
 -- sentido al medir con EXPLAIN ANALYZE.
--- =========================================================
 
 BEGIN;
 
 ---------- VEHICLES ----------
+-- specs: 4 campos SIEMPRE presentes (color, transmision, combustible, puertas)
+-- + campos CONDICIONALES segun el tipo de vehiculo (heterogeneo de verdad):
+--   autonomia_km   -> solo electrico/hibrido
+--   cilindrada     -> solo nafta/diesel
+--   garantia_anios -> solo 0km
+--   numero_duenos_anteriores -> solo usados (un 0km tiene 0 por definicion)
+--   paletas_cambio -> solo transmision automatica
+--   capota -> solo 2 puertas (mas propenso a deportivo/convertible)
+--   techo_corredizo -> opcional al azar, independiente de todo lo demas
 INSERT INTO vehicles (brand, model, used, km, specs)
 SELECT
     brand,
@@ -17,28 +24,58 @@ SELECT
          THEN floor(random() * 200000)::int   -- usado: 0 a 200.000 km
          ELSE floor(random() * 100)::int       -- 0km: casi sin km
     END,
-    specs
+    jsonb_build_object(
+        'color', color,
+        'transmision', transmision,
+        'combustible', combustible,
+        'puertas', puertas
+    )
+    || CASE WHEN combustible IN ('electrico','hibrido')
+            THEN jsonb_build_object('autonomia_km', 150 + floor(random()*350)::int)
+            ELSE '{}'::jsonb END
+    || CASE WHEN combustible IN ('nafta','diesel')
+            THEN jsonb_build_object('cilindrada', 1000 + floor(random()*2000)::int)
+            ELSE '{}'::jsonb END
+    || CASE WHEN NOT used
+            THEN jsonb_build_object('garantia_anios', 1 + floor(random()*5)::int)
+            ELSE '{}'::jsonb END
+    || CASE WHEN used
+            THEN jsonb_build_object('numero_duenos_anteriores', 1 + floor(random()*3)::int)
+            ELSE '{}'::jsonb END
+    || CASE WHEN transmision = 'automatica'
+            THEN jsonb_build_object('paletas_cambio', random() < 0.5)
+            ELSE '{}'::jsonb END
+    || CASE WHEN puertas = 2
+            THEN jsonb_build_object('capota', (ARRAY['rigida','lona'])[floor(random()*2)+1])
+            ELSE '{}'::jsonb END
+    || CASE WHEN random() < 0.3
+            THEN jsonb_build_object('techo_corredizo', true)
+            ELSE '{}'::jsonb END
+    AS specs
 FROM (
     SELECT
         (ARRAY['Toyota','Volkswagen','Chevrolet','Ford','Fiat','Renault','Peugeot','Nissan','Honda','Hyundai'])[floor(random()*10)+1] AS brand,
         (ARRAY['Corolla','Gol','Onix','Focus','Cronos','Sandero','208','Versa','Civic','HB20'])[floor(random()*10)+1] AS model,
         random() < 0.85 AS used,
-        jsonb_build_object(
-            'color', (ARRAY['blanco','negro','gris','rojo','azul'])[floor(random()*5)+1],
-            'transmision', (ARRAY['manual','automatica'])[floor(random()*2)+1],
-            'combustible', (ARRAY['nafta','diesel','hibrido','electrico'])[floor(random()*4)+1],
-            'puertas', (ARRAY[2,4])[floor(random()*2)+1]
-        ) AS specs
-    FROM generate_series(1, 200000)
+        (ARRAY['blanco','negro','gris','rojo','azul'])[floor(random()*5)+1] AS color,
+        (ARRAY['manual','automatica'])[floor(random()*2)+1] AS transmision,
+        (ARRAY['nafta','diesel','hibrido','electrico'])[floor(random()*4)+1] AS combustible,
+        (ARRAY[2,4])[floor(random()*2)+1] AS puertas
+    FROM generate_series(1, 1000000)
 ) g;
 
 -- ---------- USERS ----------
-INSERT INTO users (name, mail, phone)
+-- image_url: ~60% de los usuarios tiene foto de perfil, el resto NULL.
+INSERT INTO users (name, mail, phone, image_url)
 SELECT
     'user_' || gs,
     'user' || gs || '@mail.com',
-    '09' || (10000000 + floor(random()*89999999))::text
-FROM generate_series(1, 15000) gs;
+    '09' || (10000000 + floor(random()*89999999))::text,
+    CASE WHEN random() < 0.6
+         THEN 'https://cdn.curpo.com/avatars/' || gs || '.jpg'
+         ELSE NULL
+    END
+FROM generate_series(1, 75000) gs;
 
 -- ---------- POSTS ----------
 -- 1 post por vehicle (mismo id), seller random.
@@ -51,33 +88,33 @@ SELECT
     'post-' || gs,
     (1500 + random() * 60000)::numeric(10,2),
     gs,
-    floor(random()*12000)+1,
+    floor(random()*60000)+1,
     NOW() - (random() * interval '730 days'),
     0
-FROM generate_series(1, 200000) gs;
+FROM generate_series(1, 1000000) gs;
 
 -- ~5% pausado y ~5% eliminado, para que el CHECK de state
 -- tenga variedad real (no solo 0 y 3).
 UPDATE posts SET state = 1
-WHERE id IN (SELECT id FROM posts ORDER BY random() LIMIT 10000);
+WHERE id IN (SELECT id FROM posts ORDER BY random() LIMIT 50000);
 
 UPDATE posts SET state = 2
 WHERE state = 0 AND id IN (
-    SELECT id FROM posts WHERE state = 0 ORDER BY random() LIMIT 10000
+    SELECT id FROM posts WHERE state = 0 ORDER BY random() LIMIT 50000
 );
 
 -- ---------- MARCAR VENDIDOS (coherencia con transactions) ----------
--- Los sellers con id 1-3000 NUNCA venden -> esto te da datos
+-- Los sellers con id 1-15000 NUNCA venden -> esto te da datos
 -- reales para la query "sellers con posts activos y cero ventas".
 -- Del resto, una porción de sus posts activos pasa a vendido (state 3).
 UPDATE posts SET state = 3
 WHERE state = 0
-  AND seller_id > 3000
+  AND seller_id > 15000
   AND id IN (
       SELECT id FROM posts
-      WHERE state = 0 AND seller_id > 3000
+      WHERE state = 0 AND seller_id > 15000
       ORDER BY random()
-      LIMIT 60000
+      LIMIT 300000
   );
 
 -- ---------- TRANSACTIONS ----------
@@ -88,7 +125,7 @@ WHERE state = 0
 INSERT INTO transactions (post_id, buyer_id, sale_price, sold_at)
 SELECT
     p.id,
-    (floor(power(random(), 3) * 15000) + 1)::bigint,
+    (floor(power(random(), 3) * 75000) + 1)::bigint,
     CASE
         WHEN random() < 0.15
             THEN p.price * (0.5 + random()*0.2)   -- vendidos muy por debajo del precio

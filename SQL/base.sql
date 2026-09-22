@@ -2,7 +2,8 @@ CREATE TABLE users(
     id BIGSERIAL PRIMARY KEY,
     name VARCHAR NOT NULL,
     mail VARCHAR NOT NULL UNIQUE,
-    phone VARCHAR
+    phone VARCHAR,
+    image_url VARCHAR
 );
 
 CREATE TABLE vehicles(
